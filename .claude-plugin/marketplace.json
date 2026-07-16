@@ -1,0 +1,13 @@
+{
+  "name": "harley-claude-plugins",
+  "owner": {
+    "name": "Harley"
+  },
+  "plugins": [
+    {
+      "name": "paper-revops",
+      "source": "./plugins/paper-revops",
+      "description": "RevOps tools for Paper: sales-cycle and win-rate skills, plus the Salesforce read-only connector."
+    }
+  ]
+}

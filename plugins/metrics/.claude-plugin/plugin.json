@@ -1,0 +1,8 @@
+{
+  "name": "paper-revops",
+  "description": "RevOps skills and Salesforce connector for Paper: sales-cycle length analysis and win-rate analysis, backed by a read-only Salesforce MCP connector.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Harley"
+  }
+}
