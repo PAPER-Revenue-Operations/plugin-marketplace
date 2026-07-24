@@ -4,7 +4,10 @@ A personal Claude Code plugin marketplace.
 
 ## What's inside
 
-**paper-revops** — bundles:
+**contracts** — bundles:
+- `generate-msa` skill (draft a Master Service Agreement from a prompt or template)
+
+**metrics** — bundles:
 - `sales-cycle` skill (average/median sales cycle length analysis)
 - `win-rate` skill (count- and dollar-based win rate analysis)
 - Salesforce Custom MCP connector (read-only: SOQL, SOSL, schema tools)
@@ -16,16 +19,17 @@ A personal Claude Code plugin marketplace.
    ```
    /plugin marketplace add <your-repo-url-or-path>
    ```
-3. Install the plugin:
+3. Install the plugins:
    ```
-   /plugin install paper-revops@harley-claude-plugins
+   /plugin install contracts@harley-claude-plugins
+   /plugin install metrics@harley-claude-plugins
    ```
 4. Run `/mcp` inside a session to authenticate the Salesforce connector if it's not already connected.
 5. Run `/reload-plugins` if you make edits later without restarting.
 
 ## Updating
 
-Edit the skill files directly under `plugins/paper-revops/skills/`, commit, and push.
+Edit the skill files directly under `plugins/contracts/skills/` and `plugins/metrics/skills/`, commit, and push.
 Anyone (including future-you on another machine) picks up changes via:
 ```
 /plugin marketplace update harley-claude-plugins

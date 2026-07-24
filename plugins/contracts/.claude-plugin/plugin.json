@@ -1,0 +1,8 @@
+{
+  "name": "contracts",
+  "description": "RevOps skills and Salesforce connector for Paper: contract creation and analysis, backed by a read-only Salesforce MCP connector.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Harley"
+  }
+}
