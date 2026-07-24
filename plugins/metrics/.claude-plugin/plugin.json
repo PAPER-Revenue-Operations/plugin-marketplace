@@ -1,8 +1,8 @@
 {
   "name": "metrics",
-  "description": "RevOps skills and Salesforce connector for Paper: sales-cycle length analysis and win-rate analysis, backed by a read-only Salesforce MCP connector.",
+  "description": "Calculate sales metrics for Paper.",
   "version": "1.0.0",
   "author": {
-    "name": "Harley"
+    "name": "Harley Pellowe"
   }
 }

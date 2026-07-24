@@ -1,13 +1,18 @@
 {
-  "name": "harley-claude-plugins",
+  "name": "paper-claude-plugins",
   "owner": {
-    "name": "Harley"
+    "name": "Harley Pellowe"
   },
   "plugins": [
     {
-      "name": "paper-revops",
-      "source": "./plugins/paper-revops",
-      "description": "RevOps tools for Paper: sales-cycle and win-rate skills, plus the Salesforce read-only connector."
+      "name": "contracts",
+      "source": "./plugins/contracts",
+      "description": "Create and analyze sales contracts for Paper."
+    },
+    {
+      "name": "metrics",
+      "source": "./plugins/metrics",
+      "description": "Calculate sales metrics for Paper."
     }
   ]
 }
