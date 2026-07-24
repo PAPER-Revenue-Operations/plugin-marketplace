@@ -1,4 +1,4 @@
-# harley-claude-plugins
+# paper-claude-plugins
 
 A personal Claude Code plugin marketplace.
 
@@ -21,8 +21,8 @@ A personal Claude Code plugin marketplace.
    ```
 3. Install the plugins:
    ```
-   /plugin install contracts@harley-claude-plugins
-   /plugin install metrics@harley-claude-plugins
+   /plugin install contracts@paper-claude-plugins
+   /plugin install metrics@paper-claude-plugins
    ```
 4. Run `/mcp` inside a session to authenticate the Salesforce connector if it's not already connected.
 5. Run `/reload-plugins` if you make edits later without restarting.
@@ -32,5 +32,5 @@ A personal Claude Code plugin marketplace.
 Edit the skill files directly under `plugins/contracts/skills/` and `plugins/metrics/skills/`, commit, and push.
 Anyone (including future-you on another machine) picks up changes via:
 ```
-/plugin marketplace update harley-claude-plugins
+/plugin marketplace update paper-claude-plugins
 ```
