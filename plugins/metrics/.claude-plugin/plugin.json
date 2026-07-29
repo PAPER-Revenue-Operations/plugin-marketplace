@@ -1,7 +1,7 @@
 {
   "name": "metrics",
-  "description": "Calculate sales metrics for Paper.",
-  "version": "1.1.0",
+  "description": "Calculate sales and financial metrics for Paper.",
+  "version": "1.2.0",
   "author": {
     "name": "Harley Pellowe"
   }
