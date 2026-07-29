@@ -97,6 +97,12 @@ would inflate or distort the rate:
   use `Account.Name` with a `(NOT Account.Name LIKE '%test%')` style filter; be
   aware SOQL `LIKE` is already case-insensitive, so this catches "Test", "TEST",
   "testing", etc.
+- Exclude any opp in the **`Closed Cleanup`** stage. This stage exists for
+  opps that need to be closed out for administrative reasons — merged
+  duplicates, data-entry errors, reorgs — and are neither a real win nor a
+  real loss. Unlike other stage exclusions (see the denominator note below),
+  this one is a standing default: apply it even if the user doesn't ask,
+  since including it would misrepresent the win rate either way.
 
 A good base query (adjust the product/type filters and date range to the chosen
 parameters):
@@ -108,6 +114,7 @@ WHERE IsClosed = true
   AND CloseDate >= <start> AND CloseDate <= <end>
   AND Is_Test__c = false
   AND (NOT Account.Name LIKE '%test%')
+  AND StageName != 'Closed Cleanup'
 ```
 
 Then, in your own aggregation, keep only opps whose `Product_Type__c` falls in a
@@ -121,7 +128,13 @@ limits.
 Denominator note: "closed" = won + lost. Salesforce marks both with
 `IsClosed = true`; `IsWon` separates them. Every closed opp is therefore either a
 win or a loss, including stages like "Closed Lost – No Decision" — those count as
-losses. Don't exclude any closed stage unless the user explicitly asks.
+losses. Don't exclude any closed stage unless the user explicitly asks — **with
+one standing exception: `Closed Cleanup`.** That stage is `IsClosed = true` /
+`IsWon = false` by necessity (there's no third boolean state), but it isn't a
+real sales outcome, so it's excluded from the population by default rather than
+counted as a loss. If a user explicitly asks to include it anyway (e.g. to audit
+how many opps got routed there), you can, but flag that doing so mixes
+administrative closures into the loss count.
 
 ## Step 4 — Compute the win rates
 
@@ -191,6 +204,9 @@ offer.
   their variants, e.g. "Closed Lost – No Decision") are the destination, not a
   stage an opp "reached along the way" — leave them out of the per-stage row
   list, even though they still determine each opp's `IsWon` outcome.
+  `Closed Cleanup` is excluded from this breakdown entirely (it's already
+  filtered out of the base population per Step 3), so it won't appear as a
+  row either.
 - **Fold legacy/renamed stage names by numeric prefix.** `OpportunityHistory`
   can contain `StageName` values that no longer appear in the current
   `StageName` picklist, because stages get renamed over time (e.g. an old run
@@ -322,6 +338,12 @@ rather than over-interpreting it.
   `IsWon`/`IsClosed` (outcome), `CloseDate` (period filter), `Amount` (dollar
   weighting), `Is_Test__c` and `Account.Name` (test exclusions). These are the
   confirmed API names on Paper's Opportunity object.
+- **`Closed Cleanup` is never a win or a loss.** It's a `StageName` value
+  for opps closed for administrative reasons (merges, duplicates, data
+  cleanup) rather than a genuine sales outcome. Always excluded from the base
+  population by default — see Step 3. If this exact stage label changes in
+  Salesforce, update the `StageName != 'Closed Cleanup'` filter in Step 3
+  and the per-stage exclusion note in Step 6 to match.
 - **`Amount` is the dollar field** for the dollar-based rate — not a custom
   ARR/TCV field — unless the user specifies otherwise.
 - **Pressure-test surprising results.** If a rate looks implausible (e.g. 0% or

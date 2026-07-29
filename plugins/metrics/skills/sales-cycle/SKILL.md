@@ -94,7 +94,9 @@ opp cycle times should be **shown as their own row(s)** or **merged with won**
 opps in the same segment. Default to separate rows if they don't specify.
 "Closed" for filtering purposes always means `IsClosed = true` within the
 window; `IsWon` then determines which bucket (won vs. lost) an opp falls into
-if lost opps are in scope.
+if lost opps are in scope. This won/lost choice is separate from the
+`Closed Cleanup` exclusion in Step 4 below — that stage is dropped from the
+population entirely regardless of scope, since it's neither a win nor a loss.
 
 ## Step 3 — Compute per-opp cycle length from CreatedDate → CloseDate
 
@@ -113,6 +115,11 @@ Always apply these, regardless of segment:
   SOQL use `Account.Name` with `(NOT Account.Name LIKE '%test%')` — SOQL
   `LIKE` is already case-insensitive, so this catches "Test", "TEST",
   "testing", etc.
+- Exclude any opp in the **`Closed Cleanup`** stage. These are
+  administrative closures (merged duplicates, data-entry errors, reorgs), not
+  genuine won/lost outcomes — including them would distort cycle-length
+  averages the same way test data would. Apply this by default regardless of
+  the won/lost scope choice in Step 2, since these opps are neither.
 
 A good base query to start from (adjust date range, and pull `IsWon` if lost
 opps are in scope):
@@ -124,6 +131,7 @@ WHERE IsClosed = true
   AND CloseDate >= <start> AND CloseDate <= <end>
   AND Is_Test__c = false
   AND (NOT Account.Name LIKE '%test%')
+  AND StageName != 'Closed Cleanup'
 ```
 
 This single query is all you need for the top-level table — bucket the
@@ -295,6 +303,12 @@ segment overall has plenty of opps.
 - **Renewal opps have a different stage set** than NBEX/GROW opps, but both
   sets still use numeric prefixes — map within the correct set for each opp's
   motion, don't cross-map between them.
+- **`Closed Cleanup` is never a win or a loss.** It's a `StageName` value
+  for opps closed for administrative reasons (merges, duplicates, data
+  cleanup) rather than a genuine sales outcome. Always excluded from the base
+  population by default — see Step 4. If this exact stage label changes in
+  Salesforce, update the `StageName != 'Closed Cleanup'` filter in Step 4 to
+  match.
 - **Pressure-test surprising results.** If a cycle length looks implausible
   (e.g. near-zero or extremely long relative to the segment's norm), double
   check that opp's `CreatedDate`/`CloseDate` values directly before
