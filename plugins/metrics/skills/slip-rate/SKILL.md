@@ -18,6 +18,27 @@ many ended up pushed past the quarter's end?**
   or it's still open with a current `CloseDate` after quarter end.
 - **Held** = an opp in that cohort that closed on time (any day within the
   quarter counts, even if the exact date moved around inside it).
+
+**"Held" means the date held, not that the deal was won.** An opp closed **lost**
+inside the quarter is Held — it resolved when the forecast said it would, it just
+resolved badly. This metric measures close-date reliability, not deal health, and
+the two are easy to conflate. Held can be overwhelmingly composed of on-time
+losses.
+
+Because of that, **whenever you present a slip rate you must also state the
+held-won / held-lost split and carry a one-line note that in-quarter losses count
+as Held.** Don't leave the reader to infer that a high hold rate is good news. If
+Held is a large share of the cohort and almost all of it is losses, say so
+plainly — that's a materially different story from a segment that held and won.
+
+A related trap: do **not** contrast "slipped deals that were later lost" against
+the held count to argue that slipping causes losses without first computing the
+segment's base win rate. If the segment's held deals were mostly losses too, then
+a slipped subset with zero wins is the expected result, not a finding. Compute the
+held win rate, apply it to the number of resolved slipped deals, and only call the
+difference meaningful if the observed shortfall is larger than that expectation
+can account for. With slipped subsets typically in the low tens, it usually
+isn't.
 **Exclude `Closed Cleanup` opps entirely.** This stage marks opps that were
 closed lost for administrative reasons — not a real sales outcome, just
 record-keeping — and they must never enter the cohort, the slipped count, or
@@ -81,6 +102,39 @@ you used. The chosen range plays two roles here: its **start date is "Day 1"**
 (the cohort snapshot point) and its **end date is the slip threshold**
 (anything closing after this date has slipped).
 
+#### The Day 1 datetime boundary — fixed convention
+
+`CreatedDate` on `Opportunity` and on the history objects is a **datetime**, so
+"Day 1" needs a precise instant, and the choice shifts a handful of edge records.
+Use this convention every run so results stay comparable across quarters:
+
+> **Day 1 = 00:00:00 Eastern time (`America/New_York`) on the quarter's first
+> day**, converted to the equivalent UTC literal in the SOQL. Eastern is Paper's
+> operating timezone, so this makes the snapshot land at the true start of the
+> business day rather than mid-evening the day before.
+
+Eastern is UTC−5 in winter and UTC−4 during daylight time, so the offset differs
+by quarter. Worked examples:
+
+| Quarter | Day 1 (Eastern) | SOQL literal to use |
+|---|---|---|
+| Q1 | Jan 1, 00:00 EST | `<YYYY>-01-01T05:00:00Z` |
+| Q2 | Apr 1, 00:00 EDT | `<YYYY>-04-01T04:00:00Z` |
+| Q3 | Jul 1, 00:00 EDT | `<YYYY>-07-01T04:00:00Z` |
+| Q4 | Oct 1, 00:00 EDT | `<YYYY>-10-01T04:00:00Z` |
+
+Apply the same literal everywhere Day 1 appears — Pass 1's `CreatedDate <=`,
+Pass 2's `CreatedDate <`, and Pass 3's `CreatedDate >` — or the passes will
+disagree about which opps are candidates. `CloseDate` is a plain **date** field
+and needs no timezone handling; keep using the bare `<YYYY>-01-01` form for it.
+
+**Note on prior runs:** the Q1 2026 and Q2 2026 figures recorded at the bottom of
+this skill were computed with a UTC-midnight Day 1 (`T00:00:00Z`), five hours
+earlier than this convention. The difference only affects opps created during
+those five hours, so the recorded rates are still usable as reference points —
+but a re-run under this convention may differ by an opp or two. Don't treat a
+small discrepancy against those numbers as a bug.
+
 ### Completeness check — required before running
 
 Check today's date against the time frame's end date. **If the
@@ -113,6 +167,12 @@ into:
 
 - **NBEX** ← `New Business`, `Expansion`, `New Logo`, `New Logo Rebuy`,
   `Cross-Sell`, `Pilot`
+  - `Expansion` is **not an active `Type` picklist value in this org** — as of
+    July 2026 the live values are `New Business`, `New Logo`, `New Logo Rebuy`,
+    `Cross-sell`, `Pilot` (plus the Renewal-side values). Keep it in the `IN`
+    list anyway: it costs nothing, SOQL won't error on it, and it still catches
+    any historical record holding a since-retired value. Just don't be surprised
+    when it matches zero rows.
 - **Renewal/Rebuy** ← everything else (e.g. `Renewal`, `Rebuy`, `Short-Term
   Renewal`)
 Match `Type` values case-insensitively and tolerate small spelling variations —
@@ -296,6 +356,36 @@ what was transcribed when a rate later looks off.
 The **cohort** = candidate opps that were open on Day 1 (Pass 2) *and* whose
 Day-1 `CloseDate` (Pass 3) falls within the quarter.
 
+#### Non-cohort candidates — report every exclusion reason
+
+Pass 1 deliberately casts wider than the cohort (it filters on *current*
+`CloseDate >= Day1`, not the Day-1 value), so a large share of candidates
+legitimately drop out. Tag every dropped candidate with its exclusion reason and
+**report the count for each reason present**. Don't assume how many reasons will
+appear in a given run — a bucket being empty this quarter says nothing about next
+quarter. There are three paths out:
+
+- **`not_open_on_day1`** — excluded by Pass 2: the opp had a terminal stage
+  transition before Day 1, so it wasn't open at the snapshot point. Often zero, but
+  never assume it; if Pass 2 returns no rows, validate that the query works before
+  believing the zero (see Pass 2 above).
+- **`day1_close_after_quarter`** — Day-1 `CloseDate` was already past quarter end.
+  These were never in-quarter deals; they were forecast for a later period and only
+  surfaced in Pass 1 because their current date is in range. Expect this bucket to
+  be large and unremarkable.
+- **`day1_close_before_quarter`** — Day-1 `CloseDate` was *already in the past* on
+  Day 1. These deals entered the quarter carrying a stale, overdue close date.
+  They're correctly excluded (they weren't forecast to close in the quarter, they
+  were forecast to have closed already) — but the bucket's **size is a signal
+  about forecast hygiene**, not a neutral filtering artifact. A rep who never
+  re-dates a dying deal produces these instead of producing slips, which means a
+  clean-looking slip rate can coexist with bad pipeline discipline.
+
+Call out that last bucket explicitly whenever it's non-trivial, and offer to list
+the opps in it — they're usually worth a separate cleanup conversation. Reporting
+the cohort count without the exclusion breakdown hides the fact that the cohort
+can be a minority of the candidate pool.
+
 For each opp in that cohort, determine the outcome from its **current**
 Opportunity fields:
 - **Held**: `IsClosed = true` and current `CloseDate` falls within the quarter.
@@ -410,6 +500,14 @@ tell. Say so explicitly and give the rate with the outlier removed — e.g. "GRO
 – Renewal/Rebuy's 18.1% dollar slip rate rests on one $4.5M held deal at 72% of
 segment dollars; excluding it, the rate is ~63%."
 
+As a concrete trigger, **flag any single opp at or above ~15% of its segment's
+cohort dollars** and report the dollar rate both with and without it. Note that
+this cuts both ways: a large **Held** deal *depresses* the dollar rate, so the
+headline can understate slippage just as easily as overstate it. When a big held
+deal is doing that, the outlier-excluded figure is usually the more
+representative read and should be given alongside the headline, not instead of
+it. Don't only look for outliers that inflate the number.
+
 Watch specifically for **bulk-created record blocks**: runs of opps sharing a
 `CreatedDate` to the second and a repeated identical `Amount` (e.g. seventeen
 records created in one second, nearly all at exactly $40,000, one at $4.5M).
@@ -441,18 +539,60 @@ for it or agreed to the offer.
 
 ### Definitions
 
-- **Stage** here means the opp's **current** `StageName` — a single
-  point-in-time field read, not a "did it ever pass through this stage"
-  reconstruction like the win-rate skill's per-stage view. No
-  `OpportunityHistory` funnel-walk is needed for this step.
-- **Terminal stages are valid rows here** (unlike a win-rate per-stage
-  breakdown). A slipped opp that eventually closed late is meaningfully
-  different from one still stuck open in an active stage — both are real
-  outcomes worth showing, so don't exclude `Closed Won`/`Closed Lost` from the
-  row list. **`Closed Cleanup` is the one exception** — those opps were already
-  filtered out in Pass 1 and should never appear as a row here. If you're
-  running Step 6 standalone and see any, that's a sign the Pass 1 filter wasn't
-  applied; go back and exclude them.
+- **Stage** here means the opp's `StageName` **as of the moment its close date was
+  pushed out of the quarter** — a point-in-time reconstruction, not a read of the
+  current field. This requires a `StageName` field-history query (see Query
+  approach below).
+
+  **Do not use the current `StageName`.** It answers a different and much less
+  useful question. Most slipped deals eventually close, so their current stage is
+  terminal, and a table built on the current field collapses onto `Closed Lost`
+  while telling you nothing about where slippage originates.
+
+  *Worked example (one run — GROW–NBEX, Q1 2026; illustrative only, don't expect
+  these shapes to repeat).* Same 25 slipped deals, scored both ways:
+
+  | Stage | Current-field (wrong) | At push-out (correct) |
+  |---|---|---|
+  | 0. SDR Holding | 0 | 1 |
+  | 1. Sales Qualified | 2 | 6 |
+  | 2. Demo | 3 | 8 |
+  | 3. Proposal | 1 | 9 |
+  | 5. Negotiation | 0 | 1 |
+  | Closed Lost | 19 | 0 |
+
+  The left column says "76% of slips are closed-lost deals," which is a tautology.
+  The right column locates slippage in the funnel, which is actionable. That
+  divergence is the whole reason this step spends an extra query — if a future run
+  is tempted to shortcut back to the current field, this is why not.
+
+- **Defining the push-out event.** Using the Pass 3 `CloseDate` history rows, find
+  the edits where `OldValue` is on or before quarter end and `NewValue` is after
+  it — the transitions that carried the deal out of the quarter. **Use the last
+  such crossing**, not the first: a deal pushed out, pulled back in, then pushed
+  out again slipped on the final push, and the earlier one didn't stick.
+- **The push event can fall after quarter end.** A deal still dated for the last
+  day of the quarter that gets re-dated a few days later has a push timestamp
+  outside the period. That's legitimate — don't filter these out, and don't assume
+  a late push means a late-stage deal.
+- **Terminal stages should be rare here, and are worth investigating.** Unlike the
+  current-field version, a deal in a closed stage at the moment of push-out is
+  anomalous — it means someone re-dated an already-closed opp. If terminal rows
+  appear, surface them as a data-hygiene flag rather than a normal row. **`Closed
+  Cleanup` should never appear at all** — those opps were filtered in Pass 1; if
+  you see one, the Pass 1 filter wasn't applied, so go back and exclude them.
+- **Expect retired stage values.** Historical reconstruction surfaces stages that
+  no longer exist in the current picklist — `1. Discovery` is one known retired
+  NBEX value that appears in older history. Report such values as their own rows
+  under their historical name; don't silently remap them onto a current stage, and
+  don't drop them.
+- **Fallback for slips with no push event.** A deal can slip by staleness: its
+  close date never moves, it simply sits open past quarter end. It's Slipped under
+  the Step 3 assembly rule but has no push timestamp to measure. Report these as a
+  separate **"slipped without re-dating"** row rather than forcing them into a
+  stage bucket — they're the same forecast-hygiene pathology as the
+  `day1_close_before_quarter` bucket in Step 3, and lumping them into a stage
+  hides that. Don't assume this bucket is empty; check it every run.
 - **Denominator** = the same cohort from the main analysis, restricted to the
   **slipped** subset (Step 3's assembly). Held opps don't have a "stage when
   they slipped," so they're out of scope for this view entirely.
@@ -468,12 +608,47 @@ for it or agreed to the offer.
   across both pipelines and can appear in either table.
 ### Query approach
 
-1. Start from the slipped-opp `Id` set Step 3 produced — run Step 3 in full
-   first if you haven't. **No new query is needed if you just built it:** Pass
-   1 already selects `StageName`, so every slipped opp's current stage is in
-   hand. Only query if you're working from a cohort you didn't just build.
-2. Group by `StageName` (splitting into NBEX/Renewal tables if the scope mixes
-   both motions per above), and compute counts and dollars per stage.
+1. Start from the slipped-opp `Id` set Step 3 produced — run Step 3 in full first
+   if you haven't. This step **does need one new query**; Pass 1's `StageName` is
+   the current value and is the wrong field for this view.
+2. Derive each slipped opp's push-out timestamp from the Pass 3 rows you already
+   have (last `OldValue <= QuarterEnd` → `NewValue > QuarterEnd` crossing). No
+   query needed — it's already in hand.
+3. Query `StageName` field history for the slipped set only. This is usually a
+   small set — a few dozen opps at most — so an explicit `Id IN (...)` list is fine
+   and more precise than a semi-join:
+
+   ```sql
+   SELECT OpportunityId, OldValue, NewValue, CreatedDate
+   FROM OpportunityFieldHistory
+   WHERE Field = 'StageName'
+     AND OpportunityId IN (<slipped opp ids>)
+   ORDER BY OpportunityId ASC, CreatedDate ASC
+   ```
+
+4. Reconstruct the stage in effect at each push timestamp `T`:
+   - **Latest edit at or before `T` exists** → the stage is that edit's `NewValue`.
+   - **Edits exist but all are after `T`** → the stage is the *earliest* edit's
+     `OldValue` (the opp's stage before any recorded change).
+   - **No `StageName` history rows at all** → the stage never changed, so the
+     current `StageName` is correct for every point in the opp's life. Expect a
+     handful of these in any run.
+
+   Record which of the three branches produced each answer, so the audit file can
+   show the derivation rather than just the result.
+
+5. Group by the reconstructed stage (splitting into NBEX/Renewal tables if the
+   scope mixes both motions per above), and compute counts and dollars per stage.
+
+6. **Check the push timestamps for clustering.** Sort the push events
+   chronologically and look for runs within a few minutes of each other — that's
+   one person re-dating a batch of deals in a single sitting, usually a pipeline
+   review, rather than that many independent judgments. Report the clustered share
+   alongside the stage table when it's material: it reframes the slip rate from a
+   sum of individual deal problems into a handful of bulk forecast resets, which is
+   a different management conversation. Use roughly a 10-minute window as the
+   default test, and name the dates the clusters fall on — they usually correspond
+   to a recurring forecast meeting.
 ### Segment scope
 
 If the user's main analysis has multiple segments (e.g. GROW and On-Demand
@@ -489,17 +664,29 @@ default within each.
 
 Render in a table with stage as the row:
 
-| Stage at Slip | Slipped Count | Slipped $ |
-|---|---|---|
-| 2. Demo | … | … |
-| 3. Proposal | … | … |
-| Closed Won | … | … |
-| Closed Lost | … | … |
+| Stage at Push-Out | Slipped Count | % of Slipped | Slipped $ | % of Slipped $ |
+|---|---|---|---|---|
+| 1. Sales Qualified | … | … | … | … |
+| 2. Demo | … | … | … | … |
+| 3. Proposal | … | … | … | … |
+| *slipped without re-dating* | … | … | … | … |
+
+Order rows by the pipeline sequence, not by size — the shape of the funnel is the
+point. Include the "slipped without re-dating" row only when non-empty, and any
+retired stage values in their correct historical position.
 
 This view doesn't have a "rate" per row the way the main table does — it's a
-distribution of where slipped deals ended up, not a rate against a denominator
-— so just show counts and dollars, optionally with each row's share of total
-slipped count/dollars if useful.
+distribution of **where deals were standing when they were pushed out**, not a
+rate against a denominator — so show counts and dollars plus each row's share of
+the slipped totals. Say explicitly in the surrounding prose that the denominator
+is the slipped subset only, since held deals have no push-out event.
+
+Also read the **absences** aloud, not just the populated rows. A stage with no
+slips is a real finding: if nothing slipped from the late stages, then deals that
+reached them resolved inside the quarter and the problem sits at the top of the
+funnel rather than in closing — and the reverse pattern points somewhere entirely
+different. Check the empty rows against the pipeline sequence before writing the
+summary; that conclusion is invisible in a table read only for its biggest row.
 
 ## Step 7 — Offer a trend comparison
 
@@ -608,9 +795,16 @@ anything unless the user asks or accepts.
   Group A is aggregate-only, `candidates.csv` covers Group B; say so in
   `run-metadata.csv` rather than leaving the reader to notice the count
   mismatch.
-- **Step 6 needs no extra file.** `StageName` and `outcome` are both in
-  `candidates.csv`, so the stage-at-slip distribution is a pivot away. Don't
-  write a separate file for it.
+- **`stage-at-push-out.csv`** — required **only if Step 6 was run**. Step 6 now
+  reconstructs the stage as of each slipped opp's push-out event, which is *not*
+  derivable from `candidates.csv` (that file's `StageName` is the current value,
+  which Step 6 deliberately doesn't use). One row per slipped opp:
+  `OpportunityId`, `push_event_at`, `pushed_from`, `pushed_to`,
+  `stage_at_push_out`, `derivation` (which of the three reconstruction branches
+  produced it), `current_stagename`, `amount`. Include a companion
+  `stagename-history.csv` holding the raw `StageName` field-history rows the
+  reconstruction was built from, so the derivation is checkable rather than
+  asserted. If Step 6 wasn't run, omit both files.
 
 ### Keep the rows honest
 
@@ -679,7 +873,12 @@ the user asks.
   no history needed). These are the confirmed API names on Paper's Opportunity
   object.
 - **`Amount` is the dollar field** for the dollar-based rate — not a custom
-  ARR/TCV field — unless the user specifies otherwise.
+  ARR/TCV field — unless the user specifies otherwise. **Verify this once per
+  session before trusting it:** call the connector's `getObjectSchema` on
+  `Opportunity` and read the admin-authored guidance it returns, which is where
+  an org flags things like "use a different field for revenue reporting." If it
+  names a different currency field, use that and say which field you used in
+  the output.
 - **`Amount` can be null, not just zero.** At least one live record has a null
   `Amount`. Coerce null to 0 explicitly in any dollar math, or sums will throw.
   Note that SOQL `SUM()` silently skips nulls while `COUNT()` includes those
@@ -724,16 +923,37 @@ the user asks.
 Two things this skill can't decide on its own. Resolving them makes future runs
 both faster and more useful.
 
-- **A plausible range for the headline rate.** One data point so far: **Q2 2026
-  (GROW + On-Demand, NBEX + Renewal/Rebuy combined) came in at 62.3%
-  count-based / 39.1% dollar-based**, on a cohort of 146. By segment: GROW–NBEX
-  69.7% count / 72.4% dollar (n=89, well-populated); GROW–Renewal/Rebuy 60.0%
-  count / 18.1% dollar (n=25, but the dollar figure is misleading — see the
-  bulk-block note above); On-Demand–NBEX 0.0%/0.0% (n=6, too small to mean
-  anything); On-Demand–Renewal/Rebuy 53.8% count / 35.2% dollar (n=26). Still
-  just one quarter — treat as a loose starting reference, not a target, until
-  more quarters accumulate. Record future quarters here too so a real band
-  emerges.
+- **A plausible range for the headline rate.** Two data points so far, and **they
+  disagree by roughly 2x** — which is itself the most important thing recorded
+  here.
+
+  **Q2 2026** (GROW + On-Demand, NBEX + Renewal/Rebuy combined): 62.3% count /
+  39.1% dollar, cohort 146. By segment: GROW–NBEX 69.7% count / 72.4% dollar
+  (n=89, well-populated); GROW–Renewal/Rebuy 60.0% count / 18.1% dollar (n=25,
+  dollar figure misleading — see the bulk-block note above); On-Demand–NBEX
+  0.0%/0.0% (n=6, too small to mean anything); On-Demand–Renewal/Rebuy 53.8% count
+  / 35.2% dollar (n=26).
+
+  **Q1 2026** (GROW–NBEX only, run 2026-07-29): **36.2% count / 31.5% dollar**,
+  cohort 69 of 123 candidates. Slipped 25 — 19 closed late, 6 still open. Held 44,
+  of which only 4 were won. The dollar figure was depressed by one $1M held opp at
+  22.5% of cohort dollars; excluding it, 40.6% dollar against 36.8% count, which
+  was the more representative read. Three of the 19 closed-late slips moved by only
+  a single day, so the defensible count range was ~32–36% depending on whether
+  one-day boundary slips count. Stage-at-push-out concentrated at Demo (8) and
+  Proposal (9), with nothing slipping from Planning. Other segments were not run
+  for this quarter.
+
+  **So: GROW–NBEX has come in at 69.7% and 36.2% in consecutive quarters.** Do not
+  present either number, or their midpoint, as a benchmark or target — a band this
+  wide on two observations means the metric's quarter-to-quarter variance is
+  currently unknown, and a target set from it would be arbitrary. If someone asks
+  "is our slip rate good," the honest answer is that we don't yet have enough
+  history to say, and the useful move is to compare within a quarter (across
+  segments, stages, or owners) rather than against a cross-quarter number. Record
+  future quarters here so a real band can eventually emerge, and note the scope
+  and any outlier adjustments alongside each figure — the bare percentage is not
+  interpretable without them.
 - **An optional third breakdown dimension.** Product × motion answers *what* is
   slipping but not *who* or *where*, which is what makes a slip rate
   actionable. If Paper has an owner, team, region, or segment field on
