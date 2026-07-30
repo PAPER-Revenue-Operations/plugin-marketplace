@@ -873,12 +873,7 @@ the user asks.
   no history needed). These are the confirmed API names on Paper's Opportunity
   object.
 - **`Amount` is the dollar field** for the dollar-based rate — not a custom
-  ARR/TCV field — unless the user specifies otherwise. **Verify this once per
-  session before trusting it:** call the connector's `getObjectSchema` on
-  `Opportunity` and read the admin-authored guidance it returns, which is where
-  an org flags things like "use a different field for revenue reporting." If it
-  names a different currency field, use that and say which field you used in
-  the output.
+  ARR/TCV field — unless the user specifies otherwise.
 - **`Amount` can be null, not just zero.** At least one live record has a null
   `Amount`. Coerce null to 0 explicitly in any dollar math, or sums will throw.
   Note that SOQL `SUM()` silently skips nulls while `COUNT()` includes those
