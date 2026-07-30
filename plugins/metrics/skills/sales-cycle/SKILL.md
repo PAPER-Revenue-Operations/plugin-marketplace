@@ -289,6 +289,95 @@ the low-sample-size caveat from Step 7 can be applied per stage, not just per
 segment. A stage with only 1–2 opps behind it is not meaningful even if the
 segment overall has plenty of opps.
 
+## Step 11 — Offer an audit CSV set
+
+Once the analysis is complete, offer to package the underlying data as
+downloadable CSVs. Stakeholders sometimes question the methodology or a
+surprising cycle length and want to rebuild the analysis in Google Sheets
+themselves, and the same files are the fastest way to troubleshoot the skill when
+a number looks wrong. Ask once, concisely — e.g. "Want an audit CSV set: the raw
+Salesforce rows behind these numbers plus every SOQL query I ran, so this can be
+rebuilt in Sheets?" Don't create anything unless the user asks or accepts.
+
+This is **not** the same as the export offer in Step 8. That one ships the
+finished *table* to Drive/Notion/Slack; this one ships the *raw data and the
+queries*. You can make both offers in the same message, but keep them distinct
+so the user knows which they're getting.
+
+### Always include these two files
+
+- **`queries.csv`** — every SOQL statement sent to the Salesforce connector this
+  run, in the order you ran them. Columns: `query_number`, `purpose`, `sobject`,
+  `soql`, `rows_returned`, `total_size`, `done_flag`. Collapse each statement to
+  a single line with single spaces so it lands in one cell, and write the query
+  **exactly as sent**, with the real dates and value lists substituted in — not
+  the placeholder version from this skill.
+- **`run-metadata.csv`** — the methodology record, as `key`,`value` rows: skill
+  name, run date, the exact date range with both endpoints, the product buckets
+  *and* the raw `Product_Type__c` values behind them, the motion buckets and
+  their raw `Type` values, the won/lost scope from Step 2, every exclusion
+  applied, any default or assumption you made (fiscal year, merged vs.
+  separate), and each data file's row count.
+
+### Data files
+
+- **`opportunities.csv`** — one row per opp returned by the Step 4 query. Raw
+  fields first (`Id`, `Name`, `Product_Type__c`, `Type`, `CreatedDate`,
+  `CloseDate`, `IsWon`), then the columns you derived: `cycle_days`,
+  `product_bucket`, `motion_bucket`, `won_lost`, `segment`, `included_in_math`,
+  `excluded_reason`. `cycle_days` is the whole analysis in one column — with it
+  in the file, a reader can reproduce every average and median in the table with
+  a pivot table, which is exactly the point.
+- **`stage-durations.csv`** — only if Step 10 ran. One row per stage record:
+  `OpportunityId`, the raw `Stage__c` value, `prefix_number`, `folded_stage`,
+  `Entry_Date__c`, `Exit_Date__c`, `Duration__c`, `days_in_stage` (as you
+  computed it), `source` (`Opportunity_Stage__c` or the
+  `OpportunityFieldHistory` cross-check), `included_in_math`, and
+  `excluded_reason`. This is where Step 10's confidence check becomes auditable
+  per opp instead of only as a tally — an opp you couldn't reconstruct
+  confidently belongs in the file with its reason, not omitted.
+
+### Keep the rows honest
+
+- Include the rows you excluded rather than dropping them — that's what
+  `included_in_math` (`TRUE`/`FALSE`) and `excluded_reason` are for (e.g. an
+  unrecognized `Product_Type__c`, standalone `MC`, or an opp dropped from the
+  stage breakdown by Step 10's confidence check). "Why isn't my deal in this
+  number?" is the most common challenge, and a filtered-out row can't answer it.
+- **Only rows a query actually returned this run.** Never infer, reconstruct, or
+  backfill a row to make a file look complete — record the gap in
+  `run-metadata.csv` instead.
+- **Assert the row counts.** Each data file's row count must equal that query's
+  `totalSize`. If any query came back `done: false`, the page was truncated and
+  rows are silently missing — say so in `run-metadata.csv` *and* in chat, since
+  that invalidates the averages, not just the CSV.
+
+### CSV formatting
+
+- Header row, UTF-8, one row per record.
+- Quote any field containing a comma, double quote, or newline, and double any
+  embedded double quotes. The `soql` column needs this.
+- Dates as ISO `YYYY-MM-DD` and datetimes as ISO 8601, so Sheets parses them as
+  dates rather than text.
+- Numbers raw and unrounded where you have them: `62.4` for a cycle length, not
+  "62.4 days". No units, thousands separators, or `%` signs inside a numeric
+  cell — the chat table formats, the CSV must not.
+- Booleans as `TRUE`/`FALSE`.
+
+### Delivery
+
+Create each file with `create_file` inside a run-scoped directory named for the
+metric and period (e.g. `sales-cycle-audit-Q2-2026/`), then hand them over with
+`present_files` so the user can download them. Don't use a fixed path —
+`create_file` fails outright on an existing path, and a prior run's files may
+still be present. **Don't paste CSV contents inline as a code block**; the point
+is a downloadable file. If a trend comparison from Step 9 was also run, produce
+a separate labelled folder per period rather than mixing periods in one file.
+
+These files carry account names and deal dates, so they're internal-only —
+mention that when you hand them over, and don't upload them anywhere unless the
+user asks.
+
 ## Notes and gotchas
 
 - **Source of truth is Salesforce.** Never fabricate or estimate; if a query

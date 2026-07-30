@@ -12,7 +12,7 @@
     {
       "name": "metrics",
       "source": "./plugins/metrics",
-      "description": "Calculate sales metrics for Paper."
+      "description": "Calculate sales and financial metrics for Paper."
     }
   ]
 }

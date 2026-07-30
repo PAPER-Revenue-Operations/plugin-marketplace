@@ -108,7 +108,8 @@ A good base query (adjust the product/type filters and date range to the chosen
 parameters):
 
 ```sql
-SELECT Product_Type__c, Type, IsWon, Amount
+SELECT Id, Name, Account.Name, Product_Type__c, Type, StageName, CloseDate,
+       IsWon, Amount
 FROM Opportunity
 WHERE IsClosed = true
   AND CloseDate >= <start> AND CloseDate <= <end>
@@ -116,6 +117,11 @@ WHERE IsClosed = true
   AND (NOT Account.Name LIKE '%test%')
   AND StageName != 'Closed Cleanup'
 ```
+
+`Id`, `Name`, `Account.Name`, `StageName`, and `CloseDate` aren't needed for the
+rates themselves — they're there so the rows stay traceable back to real deals in
+Salesforce if the user later wants the audit CSV from Step 9. Drop them if you
+take the aggregate path below.
 
 Then, in your own aggregation, keep only opps whose `Product_Type__c` falls in a
 requested bucket and whose `Type` falls in a requested motion. You can also push
@@ -329,6 +335,100 @@ deals but smaller ones), shifts in deal volume, and anything that looks like a
 meaningful change versus noise. Keep the low-sample caveat in mind here too — a
 swing driven by a segment with only a few closed deals is likely noise, so say so
 rather than over-interpreting it.
+
+## Step 9 — Offer an audit CSV set
+
+Once the analysis is complete, offer to package the underlying data as
+downloadable CSVs. Stakeholders sometimes question the methodology or a
+surprising rate and want to rebuild the analysis in Google Sheets themselves,
+and the same files are the fastest way to troubleshoot the skill when a number
+looks wrong. Ask once, concisely — e.g. "Want an audit CSV set: the raw
+Salesforce rows behind these numbers plus every SOQL query I ran, so this can be
+rebuilt in Sheets?" Don't create anything unless the user asks or accepts.
+
+This is **not** the same as the export offer in Step 7. That one ships the
+finished *table* to Drive/Notion/Slack; this one ships the *raw data and the
+queries*. You can make both offers in the same message, but keep them distinct
+so the user knows which they're getting.
+
+### Always include these two files
+
+- **`queries.csv`** — every SOQL statement sent to the Salesforce connector this
+  run, in the order you ran them. Columns: `query_number`, `purpose`, `sobject`,
+  `soql`, `rows_returned`, `total_size`, `done_flag`. Collapse each statement to
+  a single line with single spaces so it lands in one cell, and write the query
+  **exactly as sent**, with the real dates and value lists substituted in — not
+  the placeholder version from this skill.
+- **`run-metadata.csv`** — the methodology record, as `key`,`value` rows: skill
+  name, run date, the exact date range with both endpoints, the product buckets
+  *and* the raw `Product_Type__c` values behind them, the motion buckets and
+  their raw `Type` values, every exclusion applied, any default or assumption
+  you made (fiscal year, merged vs. separate), whether the run used row-level or
+  aggregate queries, and each data file's row count.
+
+### Data files
+
+- **`opportunities.csv`** — one row per opp returned by the Step 3 query. Raw
+  fields first (`Id`, `Name`, `Account.Name`, `Product_Type__c`, `Type`,
+  `StageName`, `CloseDate`, `IsClosed`, `IsWon`, `Amount`), then the columns you
+  derived: `product_bucket`, `motion_bucket`, `segment`, `amount_used`,
+  `included_in_math`, `excluded_reason`. The derived columns are what make the
+  file auditable — they show the bucketing decisions from Step 2 rather than
+  leaving the reader to guess them.
+- **`aggregates.csv`** — only if the run used the `GROUP BY` path instead of
+  row-level rows. Write the aggregate rows exactly as returned and note in
+  `run-metadata.csv` that per-deal detail wasn't fetched. **Don't re-query to
+  manufacture row-level rows**, and don't reconstruct per-deal rows from the
+  aggregates — say plainly that the CSV is aggregate-only and offer a fresh
+  row-level run if the user wants per-deal detail.
+- **`stage-history.csv`** — only if Step 6 ran. One row per `OpportunityHistory`
+  record: `OpportunityId`, the raw history `StageName`, `prefix_number`,
+  `folded_stage`, `pipeline` (NBEX or Renewal), `included_in_math`,
+  `excluded_reason`. This is where the stage-folding from Step 6 becomes
+  inspectable, including the unmappable records you caveated.
+
+### Keep the rows honest
+
+- Include the rows you excluded rather than dropping them — that's what
+  `included_in_math` (`TRUE`/`FALSE`) and `excluded_reason` are for (e.g.
+  unrecognized `Product_Type__c`, standalone `MC`, a terminal stage in the
+  per-stage file). "Why isn't my deal in this number?" is the most common
+  challenge, and a filtered-out row can't answer it.
+- **Only rows a query actually returned this run.** Never infer, reconstruct, or
+  backfill a row to make a file look complete — record the gap in
+  `run-metadata.csv` instead.
+- **Assert the row counts.** Each data file's row count must equal that query's
+  `totalSize`. If any query came back `done: false`, the page was truncated and
+  rows are silently missing — say so in `run-metadata.csv` *and* in chat, since
+  that invalidates the rates, not just the CSV.
+
+### CSV formatting
+
+- Header row, UTF-8, one row per record.
+- Quote any field containing a comma, double quote, or newline, and double any
+  embedded double quotes. The `soql` column needs this.
+- Dates as ISO `YYYY-MM-DD` and datetimes as ISO 8601, so Sheets parses them as
+  dates rather than text.
+- Numbers raw: `1200000`, never `$1.2M`. No currency symbols, thousands
+  separators, or `%` signs — the chat table abbreviates, the CSV must not. Write
+  rates as decimals if you include them at all.
+- Null `Amount` → an empty cell in the raw column and `0` in `amount_used`, so
+  the null-vs-zero distinction survives into Sheets.
+- Booleans as `TRUE`/`FALSE`.
+
+### Delivery
+
+Create each file with `create_file` inside a run-scoped directory named for the
+metric and period (e.g. `win-rate-audit-Q2-2026/`), then hand them over with
+`present_files` so the user can download them. Don't use a fixed path —
+`create_file` fails outright on an existing path, and a prior run's files may
+still be present. **Don't paste CSV contents inline as a code block**; the point
+is a downloadable file. If a trend comparison from Step 8 was also run, produce
+a separate labelled folder per period rather than mixing periods in one file.
+
+These files carry account names and deal amounts, so they're internal-only —
+mention that when you hand them over, and don't upload them anywhere unless the
+user asks.
 
 ## Notes and gotchas
 
